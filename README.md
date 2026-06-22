@@ -1,25 +1,22 @@
 # RISC-V Three-Round Reaction Timer on Basys 3
-
-## 1. 專題名稱
-
 以 RISC-V CPU 為核心之三回合反應時間累計與七段顯示系統
 
-## 2. 使用開發板
+## 1. 使用開發板
 
 Basys 3 FPGA Development Board
 
 本專題使用 Basys 3 FPGA 開發板實作三回合反應時間測試系統，主要使用 button、LED、七段顯示器與 100MHz clock。
 
-## 3. 使用工具版本
+## 2. 使用工具版本
 
 | 工具               | 版本 / 說明                                                    |
 | ---------------- | ---------------------------------------------------------- |
-| Vivado           | 請填入實際使用版本，例如 Vivado 2091                                 |
+| Vivado           | Vivado 2091                                 |
 | Verilog HDL      | 用於撰寫 CPU、MMIO、Timer、LED、七段顯示器控制模組                          |
 | RISC-V Toolchain | 本版本未另外使用外部 toolchain，RISC-V 程式以機器碼形式寫入 InstructionMemory.v |
 | FPGA Board       | Basys 3                                                    |
 
-## 4. 專案資料夾結構
+## 3. 專案資料夾結構
 
 ```text
 riscv-reaction-timer/
@@ -34,7 +31,7 @@ riscv-reaction-timer/
 
 ```
 
-## 5. 如何產生 bitstream
+## 4. 如何產生 bitstream
 
 1. 開啟 Vivado。
 2. 建立新的 RTL Project。
@@ -51,7 +48,7 @@ riscv-reaction-timer/
 8. Implementation 完成後點選 Generate Bitstream。
 9. 完成後會產生 `.bit` 檔案，可用於燒錄到 Basys 3 FPGA 開發板。
 
-## 6. 如何載入或修改 RISC-V 程式
+## 5. 如何載入或修改 RISC-V 程式
 
 本專題的 RISC-V 程式不是由外部 `.hex` 或 `.txt` 檔案載入，而是直接寫在 `InstructionMemory.v` 中。
 
@@ -83,7 +80,7 @@ beq
 jal
 ```
 
-## 7. 如何燒錄到 FPGA 開發板
+## 6. 如何燒錄到 FPGA 開發板
 
 1. 使用 USB 線將 Basys 3 連接到電腦。
 2. 開啟 Vivado。
@@ -95,7 +92,7 @@ jal
 8. 按下 Program。
 9. 燒錄完成後，Basys 3 會開始執行本專題系統。
 
-## 8. 如何操作與測試
+## 7. 如何操作與測試
 
 ### I/O 功能
 
@@ -131,7 +128,7 @@ jal
 | 三回合總時間測試   | 完成三回合              | 最後顯示三回合總反應時間            |
 | 提早按下測試     | LED[0] 尚未亮起前按 BTND | LED[7] 亮起，七段顯示器顯示 9.999 |
 
-## 9. 已知問題
+## 8. 已知問題
 
 1. 目前 memory-mapped I/O address 使用低位址版本，例如 `4`、`8`、`16`、`20`，未使用原本規劃的 `0x80000000` 開頭位址。
 2. 目前未加入完整 button debounce 電路，因此實機操作時可能受到按鈕彈跳影響。
@@ -140,7 +137,7 @@ jal
 5. 目前使用 polling 方式偵測按鈕狀態，尚未使用 interrupt。
 6. 隨機等待使用 LFSR 產生，屬於 pseudo-random，不是真正的硬體亂數。
 
-## 10. 外部來源與授權說明
+## 9. 外部來源與授權說明
 
 本專題使用課堂提供的 RISC-V CPU core 觀念作為基礎，並依照本專題需求進行修改與整合。
 
