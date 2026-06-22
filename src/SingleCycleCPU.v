@@ -1,4 +1,4 @@
-module SingleCycleCPU (
+module SingleCycleCPU(
     input clk,
     input start,
 
@@ -8,296 +8,140 @@ module SingleCycleCPU (
     input  [31:0] io_rdata
 );
 
-// When input start is zero, cpu should reset
-// When input start is high, cpu start running
+    reg [31:0] pc = 32'd0;
+    reg [31:0] regs [0:31];
 
-// rst is active low
-wire rst;
-assign rst = start;
+    integer i;
 
-// =====================
-// Wires
-// =====================
+    wire [31:0] inst;
 
-wire [31:0] pc_now;
-wire [31:0] pc_next;
-wire [31:0] pc_plus_4;
-wire [31:0] pc_branch;
+    InstructionMemory u_inst_mem(
+        .readAddr(pc),
+        .inst(inst)
+    );
 
-wire [31:0] inst;
+    wire [6:0] opcode;
+    wire [4:0] rd;
+    wire [2:0] funct3;
+    wire [4:0] rs1;
+    wire [4:0] rs2;
+    wire [6:0] funct7;
 
-wire [6:0] opcode;
-wire [4:0] rd;
-wire [2:0] funct3;
-wire [4:0] rs1;
-wire [4:0] rs2;
-wire funct7;
+    assign opcode = inst[6:0];
+    assign rd     = inst[11:7];
+    assign funct3 = inst[14:12];
+    assign rs1    = inst[19:15];
+    assign rs2    = inst[24:20];
+    assign funct7 = inst[31:25];
 
-assign opcode = inst[6:0];
-assign rd     = inst[11:7];
-assign funct3 = inst[14:12];
-assign rs1    = inst[19:15];
-assign rs2    = inst[24:20];
-assign funct7 = inst[30];
+    wire [31:0] rs1_data;
+    wire [31:0] rs2_data;
 
-wire memRead;
-wire [1:0] memtoReg;
-wire [1:0] ALUOp;
-wire memWrite;
-wire ALUSrc;
-wire regWrite;
-wire [1:0] PCSel;
+    assign rs1_data = (rs1 == 5'd0) ? 32'd0 : regs[rs1];
+    assign rs2_data = (rs2 == 5'd0) ? 32'd0 : regs[rs2];
 
-wire [31:0] readData1;
-wire [31:0] readData2;
-wire [31:0] writeData;
+    wire signed [31:0] imm_i;
+    wire signed [31:0] imm_s;
+    wire signed [31:0] imm_b;
+    wire signed [31:0] imm_j;
 
-wire BrEq;
-wire BrLT;
+    assign imm_i = {{20{inst[31]}}, inst[31:20]};
+    assign imm_s = {{20{inst[31]}}, inst[31:25], inst[11:7]};
+    assign imm_b = {{20{inst[31]}}, inst[7], inst[30:25], inst[11:8], 1'b0};
+    assign imm_j = {{12{inst[31]}}, inst[19:12], inst[20], inst[30:21], 1'b0};
 
-wire signed [31:0] imm;
+    localparam OPCODE_OPIMM  = 7'b0010011; // addi, andi
+    localparam OPCODE_LOAD   = 7'b0000011; // lw
+    localparam OPCODE_STORE  = 7'b0100011; // sw
+    localparam OPCODE_BRANCH = 7'b1100011; // beq
+    localparam OPCODE_JAL    = 7'b1101111; // jal
+    localparam OPCODE_OP     = 7'b0110011; // add
 
-wire [3:0] ALUCtl;
-wire signed [31:0] alu_A;
-wire signed [31:0] alu_B;
-wire signed [31:0] ALUOut;
-wire zero;
+    wire [31:0] load_addr;
+    wire [31:0] store_addr;
 
-wire [31:0] memReadData;
-wire [31:0] dataMemReadData;
+    assign load_addr  = rs1_data + imm_i;
+    assign store_addr = rs1_data + imm_s;
 
-// §C¦ì§}°£¿ùª©¡G
-// address = 4 ¥Nªí BUTTON_REG
-// address = 8 ¥Nªí LED_REG
-wire is_io;
-assign is_io = (ALUOut == 32'd4) || (ALUOut == 32'd8);
+    assign io_addr  = (opcode == OPCODE_STORE) ? store_addr :
+                      (opcode == OPCODE_LOAD)  ? load_addr  :
+                      32'd0;
 
-// §â CPU ªº°O¾ÐÅé¦s¨ú°T¸¹±µ¥X¥hµ¹ mmio.v
-assign io_addr  = ALUOut;
-assign io_wdata = readData2;
-assign io_we    = memWrite && is_io;
+    assign io_wdata = rs2_data;
+    assign io_we = start && (opcode == OPCODE_STORE);
 
-// ¦pªG¬O I/O ¦ì§}¡A´NÅª io_rdata
-// ¦pªG¬O¤@¯ë°O¾ÐÅé¡A´NÅª DataMemory
-assign memReadData = is_io ? io_rdata : dataMemReadData;
+    always @(posedge clk) begin
+        if (!start) begin
+            pc <= 32'd0;
 
-// jalr target lowest bit should be 0
-wire [31:0] jalr_target;
-assign jalr_target = {ALUOut[31:1], 1'b0};
+            for (i = 0; i < 32; i = i + 1) begin
+                regs[i] <= 32'd0;
+            end
+        end
+        else begin
+            case (opcode)
 
-// auipc needs ALU input A = PC
-assign alu_A = (opcode == 7'b0010111) ? pc_now : readData1;
+                OPCODE_OPIMM: begin
+                    if (rd != 5'd0) begin
+                        case (funct3)
+                            3'b000: regs[rd] <= rs1_data + imm_i; // addi
+                            3'b111: regs[rd] <= rs1_data & imm_i; // andi
+                            default: regs[rd] <= regs[rd];
+                        endcase
+                    end
 
+                    pc <= pc + 32'd4;
+                end
 
-// =====================
-// PC
-// =====================
+                OPCODE_OP: begin
+                    if (rd != 5'd0) begin
+                        if (funct3 == 3'b000 && funct7 == 7'b0000000) begin
+                            regs[rd] <= rs1_data + rs2_data; // add
+                        end
+                    end
 
-PC m_PC(
-    .clk(clk),
-    .rst(rst),
-    .pc_i(pc_next),
-    .pc_o(pc_now)
-);
+                    pc <= pc + 32'd4;
+                end
 
+                OPCODE_LOAD: begin
+                    if (funct3 == 3'b010) begin
+                        if (rd != 5'd0) begin
+                            regs[rd] <= io_rdata;
+                        end
+                    end
 
-// =====================
-// PC + 4
-// =====================
+                    pc <= pc + 32'd4;
+                end
 
-Adder m_Adder_1(
-    .a(pc_now),
-    .b(32'd4),
-    .sum(pc_plus_4)
-);
+                OPCODE_STORE: begin
+                    pc <= pc + 32'd4;
+                end
 
+                OPCODE_BRANCH: begin
+                    if (funct3 == 3'b000 && rs1_data == rs2_data) begin
+                        pc <= pc + imm_b;
+                    end
+                    else begin
+                        pc <= pc + 32'd4;
+                    end
+                end
 
-// =====================
-// Instruction Memory
-// =====================
+                OPCODE_JAL: begin
+                    if (rd != 5'd0) begin
+                        regs[rd] <= pc + 32'd4;
+                    end
 
-InstructionMemory m_InstMem(
-    .readAddr(pc_now),
-    .inst(inst)
-);
+                    pc <= pc + imm_j;
+                end
 
+                default: begin
+                    pc <= pc + 32'd4;
+                end
 
-// =====================
-// Control
-// =====================
+            endcase
 
-Control m_Control(
-    .opcode(opcode),
-    .funct3(funct3),
-    .BrEq(BrEq),
-    .BrLT(BrLT),
-    .memRead(memRead),
-    .memtoReg(memtoReg),
-    .ALUOp(ALUOp),
-    .memWrite(memWrite),
-    .ALUSrc(ALUSrc),
-    .regWrite(regWrite),
-    .PCSel(PCSel)
-);
-
-
-// =====================
-// Register
-// Do not change instance name!
-// =====================
-
-Register m_Register(
-    .clk(clk),
-    .rst(rst),
-    .regWrite(regWrite),
-    .readReg1(rs1),
-    .readReg2(rs2),
-    .writeReg(rd),
-    .writeData(writeData),
-    .readData1(readData1),
-    .readData2(readData2)
-);
-
-// ======= for validation =======
-// == Dont change this section ==
-// assign r = m_Register.regs;
-// ======= for validation =======
-
-
-// =====================
-// Branch Comparator
-// =====================
-
-BranchComp m_BranchComp(
-    .A(readData1),
-    .B(readData2),
-    .BrEq(BrEq),
-    .BrLT(BrLT)
-);
-
-
-// =====================
-// Immediate Generator
-// =====================
-
-ImmGen m_ImmGen(
-    .inst(inst),
-    .imm(imm)
-);
-
-
-// =====================
-// ShiftLeftOne
-// ?™ä»½è¨­è?ˆæ?’æ?‰ä½¿?”¨å®ƒï?Œå? ç‚º ImmGen ??? B/J type å·²ç?“è?? 1'b0
-// ä½†æ¨¡?¿??‰é?™å?‹æ¨¡çµ„ï?Œæ?ä»¥ä?ç?? instanceï¼Œé¿??ä? ä?‹å?Œæƒ³?”¹?ž¶æ§?
-// =====================
-
-wire [31:0] unused_shifted_imm;
-
-ShiftLeftOne m_ShiftLeftOne(
-    .i(imm),
-    .o(unused_shifted_imm)
-);
-
-
-// =====================
-// PC + imm for branch / jal
-// æ³¨æ?ï?šé?™è£¡?›´?Ž¥?”¨ immï¼Œä?å?? shift left
-// ?? ç‚º ImmGen å·²ç?“è?? 1'b0
-// =====================
-
-Adder m_Adder_2(
-    .a(pc_now),
-    .b(imm),
-    .sum(pc_branch)
-);
-
-
-// =====================
-// PC Mux
-// PCSel:
-// 00 -> PC + 4
-// 01 -> PC + imm      branch / jal
-// 10 -> rs1 + imm     jalr
-// =====================
-
-Mux3to1 #(.size(32)) m_Mux_PC(
-    .sel(PCSel),
-    .s0(pc_plus_4),
-    .s1(pc_branch),
-    .s2(jalr_target),
-    .out(pc_next)
-);
-
-
-// =====================
-// ALU input B Mux
-// ALUSrc:
-// 0 -> readData2
-// 1 -> imm
-// =====================
-
-Mux2to1 #(.size(32)) m_Mux_ALU(
-    .sel(ALUSrc),
-    .s0(readData2),
-    .s1(imm),
-    .out(alu_B)
-);
-
-
-// =====================
-// ALU Control
-// =====================
-
-ALUCtrl m_ALUCtrl(
-    .ALUOp(ALUOp),
-    .funct7(funct7),
-    .funct3(funct3),
-    .ALUCtl(ALUCtl)
-);
-
-
-// =====================
-// ALU
-// =====================
-
-ALU m_ALU(
-    .ALUctl(ALUCtl),
-    .A(alu_A),
-    .B(alu_B),
-    .ALUOut(ALUOut),
-    .zero(zero)
-);
-
-
-// =====================
-// Data Memory
-// =====================
-
-DataMemory m_DataMemory(
-    .rst(rst),
-    .clk(clk),
-    .memWrite(memWrite && !is_io),
-    .memRead(memRead && !is_io),
-    .address(ALUOut),
-    .writeData(readData2),
-    .readData(dataMemReadData)
-);
-
-// =====================
-// Write Back Mux
-// memtoReg:
-// 00 -> ALUOut
-// 01 -> DataMemory readData
-// 10 -> PC + 4       jal / jalr
-// =====================
-
-Mux3to1 #(.size(32)) m_Mux_WriteData(
-    .sel(memtoReg),
-    .s0(ALUOut),
-    .s1(memReadData),
-    .s2(pc_plus_4),
-    .out(writeData)
-);
+            regs[0] <= 32'd0;
+        end
+    end
 
 endmodule
